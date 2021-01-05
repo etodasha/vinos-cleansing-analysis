@@ -18,7 +18,7 @@ https://github.com/etodasha/vinos-cleansing-analysis/blob/main/c%C3%B3digo/vinos
 
 Informes dinámicos .pdf y .html         
 https://github.com/etodasha/vinos-cleansing-analysis/tree/main/informes        
-Entre ellos: documento pdf con las respuestas y firmas 
+Entre ellos: documento pdf con las respuestas y firmas         
 https://github.com/etodasha/vinos-cleansing-analysis/blob/main/informes/vinos_cleansing_analysis.pdf
 
 Datasets originales y resultantes .csv         
