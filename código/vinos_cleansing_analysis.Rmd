@@ -1,0 +1,582 @@
+---
+title: 'Práctica 2: Limpieza y análisis de datos'
+author: "Daria Gracheva, Zechao Jin"
+date: '`r format(Sys.Date(),"%e de %B, %Y")`'
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+  pdf_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+library(ggplot2) # visualization
+library(patchwork)
+library(tidyverse)
+library(corrplot)
+library(factoextra)
+library(Hmisc) # impute
+library(arules) # discretize
+library(DescTools) # box-cox
+library(caTools) # split
+library(caret) # classification
+library(regclass) # confusion matrix
+library(randomForest)
+``` 
+
+# Descripción del dataset.
+El dataset elegido es "Wine quality dataset", el cual es originalmente publicado en el repositorio UCI Machine Learning y posteriormente en plataforma kaggle (https://www.kaggle.com/uciml/red-wine-quality-cortez-et-al-2009; https://archive.ics.uci.edu/ml/datasets/Wine+Quality).        
+Se trata de 2 conjuntos de datos para tipos tinto y blanco del 'vinho verde' cada uno de cuales contiene 11 atributos numéricos (caracteristicas fisicoquimicas del vino) y la marca de clase que corresponde a la calidad sensorial del vino en una escala de 0 a 10. El dataset de los vinos tintos contiene 1599 observaciones, y el de vinos blancos - 4898 observaciones, mientras la marca de calidad tiene un sesgo para los vinos de calidad "normal", segun los autores.       
+     
+### ¿Por qué es importante y qué pregunta/problema pretende responder?
+Con este estudio se pretende explicar y perfilar la calidad de los vinos de distintos colores según sus caracteristicas fisicoquímicas. La calidad es un paradigma común y entendible, las características son facilmente interpretables y el ámbito del tema es generalmente conocido pues tiene un alto potencial de dar un resultado divulgativo.      
+       
+Teniendo en cuenta que se habia usado la misma metodología para recopilar los datos (los dos datasets provienen de la misma fuente) y los atributos son los mismos, y aunque la dimensionalidad de datasets no es igual, eso nos permite comparar los dos conjuntos estadísticamente. Con los datos que disponemos, se puede llevar a cabo estudios tanto de cada una de las muestras (por ejemplo, para explicar la calidad de cada uno de los tipos de vinos), como de dos muestras (comparar estadísticamente parametros o proporciones), y también tener intuición sobre similitudes y diferencias de los vinos.        
+Puesto que hay una marca de clase original, el dataset permite crear modelos supervisados de clasficación para poder predecir la calidad sensorial en función de los atributos físicoquímicos.      
+      
+# Integración y selección de los datos de interés a analizar.
+Cargamos los dos datasets:
+```{r message= FALSE, warning=FALSE}
+# Carga del dataset
+red <- read.csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv', header = TRUE, sep = ";")
+
+white <- read.csv('https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv', header = TRUE, sep = ";")
+
+# Nombres de los atributos
+names(red) <- c("fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide" , "density", "pH", "sulphates", "alcohol", "quality")
+names(red) <- make.names(names(red))
+
+names(white) <- c("fixed acidity", "volatile acidity", "citric acid", "residual sugar", "chlorides", "free sulfur dioxide", "total sulfur dioxide" , "density", "pH", "sulphates", "alcohol", "quality")
+names(white) <- make.names(names(white))
+
+# Verificamos la estructura de los conjuntos de datos
+str(red)
+str(white)
+```
+     
+Se observa que tenemos todas las variables bien numéricas continuas o discretas.       
+Descripción de variables: son las características físicas o químicas del vino más su calidad y su color/tipo (tinto o blanco)       
+fixed acidity       : acidez fija (g/l), v. continua    
+volatile acidity    : acidez volatil (g/l), v. continua     
+citric acid         : acido citrico (g/l), v. continua   
+residual sugar      : azucar residual (g/l), v. continua    
+chlorides           : cloruros (g/l), v. continua    
+free sulfur dioxide : dioxido de azufre libre  (mg/l), v. continua    
+total sulfur dioxide: dioxido de azufre total (mg/l), v. continua    
+density             : densidad  (g/l), v. continua     
+pH                  : pH, v. continua    
+sulphates           : sulfatos (g/l), v. continua    
+alcohol             : concentracción de alcohol (%%), v. continua     
+quality             : calidad, v. discreta     
+     
+     
+Veamos como son algunas de las observaciones:
+```{r}
+rbind(head(red,3), tail(red,3))
+```
+```{r}
+rbind(head(white,3), tail(white,3))
+```
+
+# Limpieza y preprocesamiento de los datos
+Veamos las estadísticas básicas:
+``` {r message= FALSE, warning=FALSE} 
+summary(red)
+```
+``` {r message= FALSE, warning=FALSE}
+summary(white)
+``` 
+        
+Todas los columnas parecen ser bastante limpias, no obstante aquí se observa la heterogeneidad de las variables (por ejemplo, cloruros que no superan 0.611 g/l y dioxido de sulfuro total que "alcanza" 440 mg/l: dado que tienen las unidades distintas se produce esta brecha).       
+   
+En cuanto a la calidad, el valor mínimo es 3 y el máximo es 9 (para vinos blancos). Por lo que la escala real sería 3-9. Comprobamos la distribución de calidad:
+``` {r message= FALSE, warning=FALSE}
+table(red$quality)
+```
+``` {r message= FALSE, warning=FALSE}
+table(white$quality)
+``` 
+     
+Tal y como se ha dicho anteriormente, las distribucion de clases no es balanceada, con vinos normales mas representados. Con el atributo "quality" podemos tener 7 marcas de clase diferentes, aunque puede ser conveniente agruparlo en una variable discreta como vemos más adelante.     
+   
+Distribución de valores únicos de atributos:    
+```{r message= FALSE, warning=FALSE}
+apply(red,2, function(x) length(unique(x)))
+```
+  
+```{r message= FALSE, warning=FALSE}
+apply(white,2, function(x) length(unique(x)))
+```  
+   
+Puesto que el número de observaciones de vinos tintos y blancos es muy distinto, tambien se observa un sesgo en variebilidad natural de los atributos de los vinos. 
+   
+## Valores nulos   
+Comprobamos si hay valores nulos en en dataset:    
+```{r message= FALSE, warning=FALSE}
+any(is.na(red))
+any(is.na(white))
+any(red=="")
+any(white=="")
+```
+     
+A partir de las estadísticas se ve que todas las variables tienen un mínimo distinto del cero menos la variable "citric acid", y podría tomar un 0 como un valor desconocido.           
+Veamos la distribución de "citric acid":
+```{r message= FALSE, warning=FALSE}
+table(red$citric.acid)
+table(white$citric.acid)
+```
+         
+Observación "0" supone alrededor de 8% de la distribución de vinos tintos y 0,3% en vinos blancos, y es comparable con algunas otras frecuencias, por lo que puede ser valor real (="no se añade el acido citrico") y no perdido o nulo.  
+
+## Unidades de medida   
+Como hemos visto, hay variables que tienen distintas unidades de medidas (hablando de variables de misma naturaleza), podemos reducirlas a las mismas medidas -por ejemplo, g/l.          
+Hay dos variables que usan otras unidades: "free/total sulfur dioxide", que en g/l tendrían la distribución parecida a la de "chlorides".     
+``` {r message= FALSE, warning=FALSE}
+# Cambio de unidades de mg/l a g/l
+red$free.sulfur.dioxide <- red$free.sulfur.dioxide * 0.001
+red$total.sulfur.dioxide <- red$total.sulfur.dioxide * 0.001
+
+white$free.sulfur.dioxide <- white$free.sulfur.dioxide * 0.001
+white$total.sulfur.dioxide <- white$total.sulfur.dioxide * 0.001
+```
+        
+Visualizamos de nuevo las estadísticas:   
+``` {r message= FALSE, warning=FALSE}
+summary(red)
+```
+``` {r message= FALSE, warning=FALSE}
+summary(white)
+```   
+   
+    
+## Outliers
+El dataset parece tener outliers ya que en muchas variables la dfirenecia entre el tercer quantil y el máximo es considerable.     
+     
+Visualizamos los boxplots de los datasets:
+``` {r message= FALSE, warning=FALSE}
+bp1 <- red %>%
+        gather(Attributes, values, c(1:11)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+bp2 <- white %>%
+        gather(Attributes, values, c(1:11)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+bp1 + labs(subtitle = "Red") + bp2 + labs(subtitle = "White") + plot_layout(nrow = 2)
+```
+             
+Se observa que las variable "residual sugar" de vinos blancos tiene outliers muy distantes, por lo que es dificil de visualizar otras características.      
+``` {r message= FALSE, warning=FALSE}
+p1 <- white %>%
+        gather(Attributes, values, c(1:3,5:11)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+p2 <- white %>%
+        gather(Attributes, values, c(2:3,5:8,10)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+p1  + labs(subtitle = "White") + p2 + plot_layout(nrow = 3)
+
+```
+          
+Tenemos algunos valores bastante anómalos con las colas por la derecha, sobre todo en variables "residual sugar", citric acid", "free sulfur dioxide", "sulphates", "volatile acidity", "sulphates", "chlorides".     
+     
+No obstante, son relativamente pocas observaciones por lo que se puede realizar una imputación por la mediana.           
+Por ello, remplazamos los valores extremos según el estadístico de boxplot por NA:      
+```{r}
+for (x in c("residual.sugar","citric.acid", "free.sulfur.dioxide", "sulphates", "volatile.acidity", "chlorides", "total.sulfur.dioxide", "fixed.acidity", "density", "alcohol", "pH")) {
+  red[,x][red[,x] %in% (boxplot.stats(red[,x])$out) ] <- NA
+  white[,x][white[,x] %in% (boxplot.stats(white[,x])$out) ] <- NA
+}
+```
+     
+Cantidad de outliers detectados:
+```{r}
+sapply(red, function(red) sum(is.na(red)))
+sapply(white, function(white) sum(is.na(white)))
+```
+     
+Un ejemplo de observaciones con outliers:
+```{r}
+head(red[is.na(red$alcohol),],5)
+```
+     
+Podemos ver que algunos valores atípicos se encuentran en las mismas observaciones.     
+     
+Imputación por la mediana:     
+```{r}
+red[,c(1:11)] <- apply(red[,c(1:11)], 2, impute)
+white[,c(1:11)] <- apply(white[,c(1:11)], 2, impute)
+```
+     
+Visualizamos los boxplots de los atributos de nuevo:     
+``` {r message= FALSE, warning=FALSE}
+bp1 <- red %>%
+        gather(Attributes, values, c(1:11)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+bp2 <- white %>%
+        gather(Attributes, values, c(1:11)) %>%
+        ggplot(aes(x=Attributes, y=values, fill=Attributes)) + geom_boxplot(show.legend=FALSE) + coord_flip()
+
+bp1 + labs(subtitle = "Red") + bp2 + labs(subtitle = "White") + plot_layout(nrow = 2)
+```
+      
+Aunque seguimos teniendo outliers en su definción más teórica, están más agrupados habiendo eliminado los valores muy anómalos y demasiado dispersos que podían ser errores o inconsistencias. Por ello, hemos obtenido la distribución mucho menos sesgada y mas representativa de variebilidad natural fisicoquímica.      
+
+## Discretización 
+Como se observa, la variable quality no está balanceada, y las clases que tienen pocas observaciones pueden presentar problemas en análisis así que es conveniente crear particiones con más observaciones. Por ello con el fin de equilibrar la marca de calidad y agruparlo de manera natural, se puede realizar la discretización de la variable. Para poder trabajar posteriormente con una variable dicotómica de calidad, fijaremos el número de bins de 2, que representaria calidad alta/no alta.          
+        
+Veamos de nuevo sus estadísticas:     
+```{r message= FALSE, warning=FALSE}
+summary(red$quality)
+summary(white$quality)
+
+par(mfrow=c(1,2))
+barplot(table(red$quality), xlab="quality", main = "red quality") 
+barplot(table(white$quality), xlab="quality", main = "white quality") 
+
+# Distribución de valores únicos
+table(red$quality)
+table(white$quality)
+```
+     
+Las marcas de clases en distintos vinos no estan igualmente distribuidas, sin embargo lo más lógico sería tener bins homogéneos para ambos vinos, teniendo así las clases de calidad consistentes.       
+     
+Para poder determinar qué observaciones agrupamos en qué bins de calidad, visualizamos las clases discretas segun si la partición se hace por igual frequencia / igual amplitud o clustering:     
+
+```{r}
+# red vines
+par(mfrow=c(2,3))
+set.seed(13) 
+
+hist(red$quality, breaks = 30, main = "red equal frequency")
+abline(v = discretize(red$quality, breaks = 2, onlycuts = TRUE), col = "red")
+ 
+hist(red$quality, breaks = 30, main = "red equal width")
+abline(v = discretize(red$quality, method = "interval", breaks = 2, onlycuts = TRUE), col = "red")
+ 
+hist(red$quality, breaks = 30, main = "red clustering")
+abline(v = discretize(red$quality, method = "cluster", breaks = 2, onlycuts = TRUE), col = "red")
+
+# white vines
+hist(white$quality, breaks = 20, main = "white equal frequency")
+abline(v = discretize(white$quality, breaks = 2, onlycuts = TRUE), col = "red")
+ 
+hist(white$quality, breaks = 20, main = "white equal width")
+abline(v = discretize(white$quality, method = "interval", breaks = 2, onlycuts = TRUE), col = "red")
+ 
+hist(white$quality, breaks = 20, main = "white clustering")
+abline(v = discretize(white$quality, method = "cluster", breaks = 2, onlycuts = TRUE), col = "red")
+```
+     
+Por la mayoria de intervalos, la calidad alta sería representada por vinos con calidad de 6 o mas, por ello creamos el atributo dicotómico correspondiente:
+
+```{r message= FALSE, warning=FALSE}
+red$quality.class[red$quality<=5]="low"
+red$quality.class[red$quality>5]="high"
+
+white$quality.class[white$quality<=5]="low"
+white$quality.class[white$quality>5]="high"
+
+red$quality.class <- factor(red$quality.class, levels = c("low","high"))
+white$quality.class <- factor(white$quality.class, levels = c("low","high"))
+
+# Frecuencia de la calidad
+table(red$quality.class)
+table(white$quality.class)
+```
+
+## Exportación de los datos preprocesados
+
+```{r}
+write.csv(red, "red_clean.csv")
+write.csv(white, "white_clean.csv")
+```
+
+
+
+# Análisis 
+
+## Selección de los grupos de datos que se quieren analizar/comparar
+Seguimos trabajando con dos conjuntos de vinos - tintos y blancos, mientras cada uno tiene dos grupos de calidad, baja y alta, que sería el principal criterio de comparación.          
+Primero, realizamos un breve análisis exploratorio visual:     
+```{r}
+col <- c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide" , "density", "pH", "sulphates", "alcohol")
+par(mfrow=c(2,3))
+
+for (name in col) {
+  hist(red[,name], prob=TRUE, xlab=name, main = name)
+  lines(density(na.omit(red[,name])))  
+}
+
+barplot(table(red$quality.class), xlab="quality", main = "quality") 
+```
+
+
+```{r}
+col <- c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide" , "density", "pH", "sulphates", "alcohol")
+par(mfrow=c(2,3))
+
+for (name in col) {
+  hist(white[,name], prob=TRUE, xlab=name, main = name) 
+  lines(density(na.omit(white[,name])))  
+}
+
+barplot(table(white$quality.class), xlab="quality", main = "quality") 
+```
+           
+Se observa que la distribucion de la mayoría de las variables para los dos datasets es relativamente normal, aunque también hay variables cuya distribución es bastante sesgada y parece visualmente a la F-distribution, por ejemplo residual sugar de vinos blancos con una cola por la derecha.     
+     
+También, se pueden visualizar los atributos separados por la marca de calidad:     
+```{r  message= FALSE, warning=FALSE}
+p1 <- ggplot(data=red,aes(x=fixed.acidity,fill=quality.class))+geom_histogram()
+p2 <- ggplot(data=red,aes(x=volatile.acidity,fill=quality.class))+geom_histogram()
+p3 <- ggplot(data=red,aes(x=citric.acid,fill=quality.class))+geom_histogram()
+p4 <- ggplot(data=red,aes(x=residual.sugar,fill=quality.class))+geom_histogram()
+p5 <- ggplot(data=red,aes(x=chlorides,fill=quality.class))+geom_histogram()
+p6 <- ggplot(data=red,aes(x=free.sulfur.dioxide,fill=quality.class))+geom_histogram()
+p7 <- ggplot(data=red,aes(x=total.sulfur.dioxide,fill=quality.class))+geom_histogram()
+p8 <- ggplot(data=red,aes(x=density,fill=quality.class))+geom_histogram()
+p9 <- ggplot(data=red,aes(x=pH,fill=quality.class))+geom_histogram()
+p10 <- ggplot(data=red,aes(x=sulphates,fill=quality.class))+geom_histogram()
+p11 <- ggplot(data=red,aes(x=alcohol,fill=quality.class))+geom_histogram()
+
+p1 + p2 + ggtitle("red") + p3 + p4 + p5 + p6 + p7 + p8 + p9 + p10 + p11 + plot_layout(ncol = 3) + plot_layout(guides = 'collect')
+```
+
+```{r  message= FALSE, warning=FALSE}
+p1 <- ggplot(data=white,aes(x=fixed.acidity,fill=quality.class))+geom_histogram()
+p2 <- ggplot(data=white,aes(x=volatile.acidity,fill=quality.class))+geom_histogram()
+p3 <- ggplot(data=white,aes(x=citric.acid,fill=quality.class))+geom_histogram()
+p4 <- ggplot(data=white,aes(x=residual.sugar,fill=quality.class))+geom_histogram()
+p5 <- ggplot(data=white,aes(x=chlorides,fill=quality.class))+geom_histogram()
+p6 <- ggplot(data=white,aes(x=free.sulfur.dioxide,fill=quality.class))+geom_histogram()
+p7 <- ggplot(data=white,aes(x=total.sulfur.dioxide,fill=quality.class))+geom_histogram()
+p8 <- ggplot(data=white,aes(x=density,fill=quality.class))+geom_histogram()
+p9 <- ggplot(data=white,aes(x=pH,fill=quality.class))+geom_histogram()
+p10 <- ggplot(data=white,aes(x=sulphates,fill=quality.class))+geom_histogram()
+p11 <- ggplot(data=white,aes(x=alcohol,fill=quality.class))+geom_histogram()
+
+p1 + p2 + ggtitle("white") + p3 + p4 + p5 + p6 + p7 + p8 + p9 + p10 + p11 + plot_layout(ncol = 3) + plot_layout(guides = 'collect')
+```
+         
+Se observan casi las mismas frecuencias para ambas calidades de los vinos, sin embargo algunos atributos se distribuen de manera distinta - sobre todo el atributo alcohol, presento en los dos subconjuntos, que podría indicar una correlación del atributo con la calidad.      
+     
+## Comprobación de la normalidad y homogeneidad de la varianza
+Para poder llevar a cabo un análisis inferencial y modelización predictiva, comprobamos la asunción de la normalidad y homoscedsticidad de los datos.         
+     
+Para los tests de normalidad, usamos la prueba de normalidad de Shapiro-Wilk. Segun el nivel de significancia fijado a 0.05, aceptamos la hipótesis nula de normalidad si el p-value resultante es mayor al nivel de significancia, y rechazamos la hipótesis nula a favor de la alternativa si el p-value es menor de 0.05.     
+```{r}
+for (x in c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide" , "density", "pH", "sulphates", "alcohol")) {
+   if (shapiro.test(red[,x])$p.value < 0.05) {
+      cat("No sigue una distribución normal (tintos):",x,"\n")
+   }
+}
+```
+
+```{r}
+for (x in c("fixed.acidity", "volatile.acidity", "citric.acid", "residual.sugar", "chlorides", "free.sulfur.dioxide", "total.sulfur.dioxide" , "density", "pH", "sulphates", "alcohol")) {
+   if (shapiro.test(white[,x])$p.value < 0.05) {
+      cat("No sigue una distribución normal (blancos):",x,"\n")
+   }
+}
+```
+Hay evidencia que ninguna de las variables sigue una distribución normal según el test Shapiro-Wilk ya que no podemos aceptar la hipotesis nula de normalidad de distribución. Sin embargo, para lidiar con ello, por el teorema de límite central, teniendo un número suficiente de observaciones (1599 y 4898), podemos asumir la normalidad para ambos datasets.     
+     
+Para comprobar la homocedasticidad de las variables, se usa el F-test, que aplicamos a la variable numérica alcohol de ambos datasets, que, tal y como hemos visto, puede ser bastante significativa para los modelos posteriores:     
+```{r}
+var.test(alcohol~quality.class, red, alternative = "two.sided")
+var.test(alcohol~quality.class, white, alternative = "two.sided")
+```
+         
+De la misma manera, por el p-value menor que el nivel de significancia, no podemos aceptar la hipótesis de homocedasticidad de alcohol en distintas calidades en vinos blancos y tintos. La proporción real de las varianzas en los grupos por calidad para ambos vinos con confianza de 95% es de aproximadamente 0.5.     
+
+## Estudio de correlación
+Para poder explicar las relaciones entre las variables para cada tipo de vino y sus clases de calidad y ver el grado de influencia, podemos visualizar los correlogramas:     
+``` {r message= FALSE, warning=FALSE}
+r <- red[1:11]
+r$quality = as.numeric(red$quality)
+
+w <- white[1:11]
+w$quality = as.numeric(white$quality)
+
+M1<-cor(r)
+M2<-cor(w)
+
+par(mfrow=c(2,2))
+corrplot(M1, method="ellipse", type='lower',tl.col="black", tl.srt=45, title='red')
+corrplot(M2, method="ellipse", type='lower',tl.col="black", tl.srt=45, title='white')
+```
+         
+Se observa que los vinos tintos y blancos tienen correlaciones distintas tanto entre sus aitibutos, como con la calidad. Por ejemplo, alcohol influye en la calidad tanto en vinos tintos como en blancos. Sin embargo la calidad de los tintos tambien esta correlcionada con sulphates  y con volatile acidity, mientras la calidad de los blancos - con density y chlorides. En cuanto a los atributos de los vinos, muchas de las correlaciones son parecidas (parejas alcohol-density, pH-fixed acidity), pero se puede concluir que en general las relaciones entre las características de los vinos son distintas para los dos tipos.     
+       
+Como la finalidad del estudio es intentar perfilar y predecir la calidad de los vinos, visualizamos las correlaciones mas significativas con calidad, primero la correlacion presente en ambos vinos, y posteriormente las correlaciones propias de cada uno de los tipos:          
+```{r}
+p1 <- ggplot(data = red,aes(x=quality.class, y=alcohol))+geom_boxplot() + ggtitle("red") + ylim(8, 15) + ggplot(data = white,aes(x=quality.class, y=alcohol))+geom_boxplot()+ ggtitle("white") + ylim(8, 15)
+
+p2 <- ggplot(data = red,aes(x=quality.class, y=density))+geom_boxplot() + ggtitle("red") + ylim(0.985, 1.005) + ggplot(data = white,aes(x=quality.class, y=density))+geom_boxplot() + ggtitle("white") + ylim(0.985, 1.005)
+
+p3 <- ggplot(data = red,aes(x=quality.class, y=sulphates))+geom_boxplot() + ggtitle("red") + ylim(0.2, 1.0) + ggplot(data = white,aes(x=quality.class, y=sulphates))+geom_boxplot() + ggtitle("white") + ylim(0.2, 1.0)
+
+p1+p2+p3
+```
+     
+Observamos la correlacion positiva con alcohol en ambos tipos de vinos, y comprobamos la diferencia en correlación de la calidad en vinos: la densidad como la característica con una influencia más fuerte en vinos blancos y sulphates - en vinos tintos. 
+
+
+## Analisis inferencial
+
+Teniendo las muestras lo suficinetemente grandes, podemos realizar los test parametricos sobre los datos. La marca clase es discreta, por ello uno de los tests mas significativos sería un test sobre la proporción de vinos de alta calidad en vinos blancos y tintos, respondiendo asi la pregunta si el color y la calidad son independientes (con los datos disponibles, que, como sabemos, prsentan un sesgo de marca de clase).      
+
+### Contraste de hipotesis de dos muestras sobre la proporción de vinos de alta calidad según el color
+Para el test, las hipótesis son:     
+     
+hipótesis nula: las proporciones de alta calidad en dos muestras son iguales (pR=pW)          
+hipótesis alternativa: las proporciones de alta calidad en dos muestras no son iguales (pR/=pW)          
+     
+Por ello, es un contraste bilateral, y fijamos el nivel de significancia en 95%.          
+
+```{r}
+pR <- dim(red[red$quality.class=='high',])[1]/dim(red)[1]
+pW <- dim(white[white$quality.class=='high',])[1]/dim(white)[1]
+nR <- dim(red)[1]
+nW <- dim(white)[1]
+
+success<-c(pR*nR, pW*nW) # vector de casos de "exito"
+nn<-c(nR,nW) # vector de tamaño de muestras
+prop.test(success, nn, alternative="two.sided", conf.level=0.95, correct=FALSE)
+```
+        
+Por el p-value no podemos aceptar la hipotesis nula de igualdad de proporciones, por ello concluimos que las proporciones de vinos de alta calidad son distintos para vinos de distinto color, siendo el color blanco el que tiende a tener calidad más alta en nuestro conjunto de datos.           
+
+## Modelización predictiva  
+Uno de los objetivos del estudio ha sido poder realizar predicciones sobre la calidad, en este apartado se intentará crear y comparar classificadores (modelos supervisados) lineales y no lineales. No sabemos qué tipo de frontera de decisión funcionará mejor sobre los datasets, por ello se prueban dos algortimos: el primer modelo que se creará es un modelo lineal de regresión con regresores multiples; luego, el modelo no lineal será un random forest, que como un algortimo de bagging permite obtener modelos robustos.     
+     
+Para poder evaluar la precisión de predicción y obtener las matrices de confusión, separamos los datasets en conjuntos de train y test:     
+```{r}
+set.seed(13)
+
+split = sample.split(red$quality, SplitRatio = 0.8)
+train_red = subset(red[c(1:11,13)],split == TRUE)
+test_red = subset(red[c(1:11,13)],split == FALSE)
+
+split = sample.split(white$quality, SplitRatio = 0.8)
+train_white = subset(white[c(1:11,13)],split == TRUE)
+test_white = subset(white[c(1:11,13)],split == FALSE)
+```
+
+
+### Regresión logistica
+Como la variable respuesta es binaria, el modelo de regressión es la regressión logística con atributos cuantitativos. Intentamos explicar la calidad con todos los atributos del dataset, que posteriormente podemos eliminar del modelo si no son significativos (según el p-value obtenido del algoritmo).          
+     
+Modelo para vinos tintos:     
+```{r}
+red_glm <- glm(quality.class ~ ., train_red, family=binomial(link=logit))
+summary(red_glm)
+```
+     
+Según el modelo, solo la mitad de las variables son estadísticamente significativas, asimismo lo podemos precisar:
+```{r}
+red_glm <- glm(quality.class~volatile.acidity+citric.acid+total.sulfur.dioxide+pH+sulphates+alcohol, train_red, family=binomial(link=logit))
+summary(red_glm)
+```
+     
+Para ver los odds ratio para cada unidad de las características:
+```{r}
+exp(coefficients(red_glm))
+```
+     
+Puesto que las características tinen distintas escalas de valores, podemos considerar alcohol y sulphates los más influyentes a la probabilidad en el modelo obtenido, lo que coincide con las correlaciones.     
+     
+La bondad de ajuste se obtiene a traves del índice de Akaike AIC, que en este caso asciende a 1325.      
+     
+Modelo vinos blancos:
+```{r}
+white_glm <- glm(quality.class ~ ., train_white, family=binomial(link=logit))
+summary(white_glm)
+```
+     
+De la misma manera, se puede precisar el modelo:
+```{r}
+white_glm <- glm(quality.class~volatile.acidity+residual.sugar+free.sulfur.dioxide+density+pH+sulphates+alcohol, train_white, family=binomial(link=logit))
+summary(white_glm)
+```
+     
+Para los vinos blancos, obtenemos un modelo con el índice AIC de 3996 que es mucho mas alto que en el modelo anterior, por ello el ajuste debe de ser peor.      
+     
+Veamos los odds ratio para cada unidad de las caracteristicas:
+```{r}
+exp(coefficients(white_glm))
+```
+     
+Para los vinos blancos, density parece tener mayor importancia para la probabilidad de clase, tal y como se ha observado en correlaciones.     
+     
+Sin embargo, la bondad de ajuste (por el AIC) no es muy buena, también podemos mirar las matrices de confusión y obtener precisión de los modelos:       
+     
+Vinos tintos:     
+```{r}
+confusion_matrix(red_glm,test_red)
+```
+     
+Por ello, tanto la exactitud del modelo (43+51/321), como la sensibilidad (51/172) y la especificidad (43/149) son de 29%, un valor por debajo de 50% como un umbral de predicciones aleatorias.     
+     
+Vinos blancos:     
+```{r}
+confusion_matrix(white_glm,test_white)
+```
+     
+Para los vinos blancos, la exactitud del modelo es de 25% con sensibilidad de 12% y especificidad de 50%, que significa que puede clasificar mejor los vinos de baja calidad, pero la bondad de ajuste sigue siendo baja.     
+     
+Podemos concluir que no es trivial encontrar un modelo lineal multiple que explique la varianza de los atributos de los vinos para la probabilidad de la calidad, entonces que el dataset no es linealmente separable.     
+
+### Modelo supervisado Random Forest
+Para probar modelo no lineal, se ha elegido el algortirmo random forest que combina varios árboles de decisión con la técnica de muestreo subaleatorio (algoritmo bagging), lo que suele crear modelos que puedan generalizar bien sobre datos nuevos y tener un buen bias-variance tradeoff.     
+     
+Modelo vinos tintos:     
+```{r}
+red_randomforest <- randomForest(quality.class ~ ., data=train_red)
+red_randomforest
+```
+     
+Modelo vinos blancos:     
+```{r}
+white_randomforest <- randomForest(quality.class ~ ., data=train_white)
+white_randomforest
+```
+     
+En ambos modelos el out-of-bag error es bastante bajo, de 19% y 17%, que indica la alta capacidad de predicción puesto que es el error promedio de cada arbol en datos nuevos (no la muestra usada para entrenamiento de cada uno). Sin embargo, ya que tenemos el el conjunto de prueba, podemos hacer otra validación y obtener matrices de confusión:     
+
+```{r}
+pred_r <- predict(red_randomforest, test_red)
+
+confusionMatrix(factor(pred_r),factor(test_red[,12]), positive = "high")
+```
+     
+Tanto exactitud, como sensibilidad y especificidad del modelo de vinos tintos es de 81-82% (coincidiendo con out-of-bag error de 19%) que indica la alta capacidad de predicción, además de robustez y buena generalización del modelo puesto que ambas calidades se predicen igual de bien.     
+
+```{r}
+pred_w <- predict(white_randomforest, test_white)
+
+confusionMatrix( factor(pred_w) , factor(test_white[,12]) , positive = "high")
+```
+     
+Para los vinos blancos, la exactitud es aún mas alta con 84%, sensibilidad es de 91%, lo que puede predecir la alta calidad exelentemente, mientras la especificidad es un poco más baja con 70%. Como sabemos, en vinos blancos hay un sesgo en la marca de clase, lo que produce la diferencia en la predicción de las clases -si tuvieramos más datos para vinos blancos con calidad mas balanceada, el modelo posiblemente podría demostrar mejor rendimiento.        
+     
+Para concluir, el modelo random forest ha obtenido una alta precisión en ambos tipos de vinos siendo el modelo prefirible para predicir la calidad sensorial en función de las caracteristicas fisicoquímicas.       
+
+# Conclusión; Resolución del problema. 
+A partir de los resultados obtenidos, ¿cuáles son las conclusiones? ¿Los resultados permiten responder al problema?      
+       
+Hemos trabajado con los dos subconjuntos de vinos realizando varios análisis explicativos o inferenciales (correlaciones, contraste de hipotesis) y creando modelos de classificación (regresión logística y random forest) con el fin de poder perfilar y predecir la calidad de vinos tanto tintos como blancos, tal y como hemos predetminado con el objetivo inicial del estudio. Puesto que los datos has sido previamente limpiados, los procesos de limpieza y preprocesamiento han consistido en imputación de outliers, cambios de unidades de medida para conseguir una consistencia entre las variables y discretización de marca de clase de calidad convertiendola en una variable dicotómica, que ha permitido agilizar los análisis y modelización posteriores.
+
+Los resultados obtenidos nos demuestran que la calidad en vinos tintos y blancos no es estadísticamente igual. Los atributos mas explicativos y/o correlacionados con la calidad son distintos (i.e density para vinos blancos y sulphates para los tintos), aunque hay similitudes, como la influyencia de alcohol en la calidad de ambos tipos de vinos. Para la clasificacion, el mejor algortimo predictivo ha sido random forest con una alta precisión por encima de 80%, puesto que los datasets parecen no ser linealmente separables y el modelo de regresión no ha podido explicar la calidad sensorial en funcion de los atributos fisicoquímicos. Por lo tanto, el estudio nos ha permitido tanto explicar la calidad de distintos tipos de vinos (como intuición, mayor calidad tendrán los vinos blancos con mas alcohol y menos densidad), y permitir predicir la calidad de manera satisfactoria, que puede ser usado tanto por los productores, como los consumidores.  
+
+
+```{r}
+data.frame("Contribuciones"=c("Investigación previa","Redacción de las respuestas","Desarrollo código"), "Firma"="D.G.,Z.J.")
+```
+
