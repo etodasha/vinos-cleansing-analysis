@@ -3,10 +3,10 @@ title: 'Práctica 2: Limpieza y análisis de datos'
 author: "Daria Gracheva, Zechao Jin"
 date: '`r format(Sys.Date(),"%e de %B, %Y")`'
 output:
-  html_document:
+  pdf_document:
     toc: true
     toc_depth: 2
-  pdf_document:
+  html_document:
     toc: true
     toc_depth: 2
 ---
@@ -35,7 +35,7 @@ Se trata de 2 conjuntos de datos para tipos tinto y blanco del 'vinho verde' cad
 Con este estudio se pretende explicar y perfilar la calidad de los vinos de distintos colores según sus caracteristicas fisicoquímicas. La calidad es un paradigma común y entendible, las características son facilmente interpretables y el ámbito del tema es generalmente conocido pues tiene un alto potencial de dar un resultado divulgativo.      
        
 Teniendo en cuenta que se habia usado la misma metodología para recopilar los datos (los dos datasets provienen de la misma fuente) y los atributos son los mismos, y aunque la dimensionalidad de datasets no es igual, eso nos permite comparar los dos conjuntos estadísticamente. Con los datos que disponemos, se puede llevar a cabo estudios tanto de cada una de las muestras (por ejemplo, para explicar la calidad de cada uno de los tipos de vinos), como de dos muestras (comparar estadísticamente parametros o proporciones), y también tener intuición sobre similitudes y diferencias de los vinos.        
-Puesto que hay una marca de clase original, el dataset permite crear modelos supervisados de clasficación para poder predecir la calidad sensorial en función de los atributos físicoquímicos.      
+Puesto que hay una marca de clase original, el dataset permite crear modelos supervisados de clasficación para poder predecir la calidad sensorial en función de los atributos fisicoquímicos.      
       
 # Integración y selección de los datos de interés a analizar.
 Cargamos los dos datasets:
@@ -428,7 +428,7 @@ p1+p2+p3
 Observamos la correlacion positiva con alcohol en ambos tipos de vinos, y comprobamos la diferencia en correlación de la calidad en vinos: la densidad como la característica con una influencia más fuerte en vinos blancos y sulphates - en vinos tintos. 
 
 
-## Analisis inferencial
+## Análisis inferencial
 
 Teniendo las muestras lo suficinetemente grandes, podemos realizar los test parametricos sobre los datos. La marca clase es discreta, por ello uno de los tests mas significativos sería un test sobre la proporción de vinos de alta calidad en vinos blancos y tintos, respondiendo asi la pregunta si el color y la calidad son independientes (con los datos disponibles, que, como sabemos, prsentan un sesgo de marca de clase).      
 
