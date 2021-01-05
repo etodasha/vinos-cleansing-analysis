@@ -14,11 +14,15 @@ Universitat Oberta of Catalunya
 
 # Contenidos
 Fichero con el código .rmd       
-github.com/etodasha/vinos-cleansing-analysis/blob/main/c%C3%B3digo/vinos_cleansing_analysis.Rmd       
+https://github.com/etodasha/vinos-cleansing-analysis/blob/main/c%C3%B3digo/vinos_cleansing_analysis.Rmd       
+
 Informes dinámicos .pdf y .html         
-github.com/etodasha/vinos-cleansing-analysis/tree/main/informes        
+https://github.com/etodasha/vinos-cleansing-analysis/tree/main/informes        
+Entre ellos: documento pdf con las respuestas y firmas 
+https://github.com/etodasha/vinos-cleansing-analysis/blob/main/informes/vinos_cleansing_analysis.pdf
+
 Datasets originales y resultantes .csv         
-github.com/etodasha/vinos-cleansing-analysis/tree/main/data      
+https://github.com/etodasha/vinos-cleansing-analysis/tree/main/data      
 
 # Licencia
 El contenido de este proyecto esta licencia bajo la Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International, y el código fuente usadao para mostrar este contenido esta licenciado bajo la MIT license.
